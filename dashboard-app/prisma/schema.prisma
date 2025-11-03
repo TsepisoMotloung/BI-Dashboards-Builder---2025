@@ -1,0 +1,247 @@
+// Prisma schema for existing database (shared with ETL app)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  pending
+  active
+  suspended
+  inactive
+}
+
+enum OrgUnitType {
+  company
+  division
+  department
+  team
+}
+
+enum RelationType {
+  ONE_TO_ONE @map("1:1")
+  ONE_TO_MANY @map("1:N")
+  MANY_TO_MANY @map("N:M")
+}
+
+enum UploadStatus {
+  pending
+  processing
+  completed
+  failed
+  rolled_back
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique @db.VarChar(255)
+  password_hash String   @db.VarChar(255)
+  full_name     String   @db.VarChar(255)
+  status        UserStatus @default(pending)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  user_roles                  UserRole[]
+  upload_history              UploadHistory[]
+  audit_logs                  AuditLog[]
+  dashboards                  Dashboard[]
+  user_organizational_units   UserOrganizationalUnit[]
+
+  @@map("users")
+}
+
+model Role {
+  id              Int      @id @default(autoincrement())
+  name            String   @unique @db.VarChar(100)
+  description     String?  @db.Text
+  is_system_role  Boolean  @default(false)
+  created_at      DateTime @default(now())
+
+  role_permissions       RolePermission[]
+  user_roles             UserRole[]
+  dashboard_permissions  DashboardPermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  resource    String   @db.VarChar(100)
+  action      String   @db.VarChar(50)
+  description String?  @db.Text
+
+  role_permissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  role_id       Int
+  permission_id Int
+
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, permission_id])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  user_id     Int
+  role_id     Int
+  assigned_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, role_id])
+  @@map("user_roles")
+}
+
+model OrganizationalUnit {
+  id         Int         @id @default(autoincrement())
+  name       String      @db.VarChar(255)
+  type       OrgUnitType
+  parent_id  Int?
+  path       String?     @db.Text
+  created_at DateTime    @default(now())
+
+  parent                      OrganizationalUnit?          @relation("OrgHierarchy", fields: [parent_id], references: [id], onDelete: Cascade)
+  children                    OrganizationalUnit[]         @relation("OrgHierarchy")
+  user_organizational_units   UserOrganizationalUnit[]
+
+  @@map("organizational_units")
+}
+
+model UserOrganizationalUnit {
+  user_id     Int
+  org_unit_id Int
+
+  user     User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  org_unit OrganizationalUnit   @relation(fields: [org_unit_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, org_unit_id])
+  @@map("user_organizational_units")
+}
+
+model DataModel {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(255)
+  schema_json String   @db.Text
+  version     Int      @default(1)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  upload_history        UploadHistory[]
+  source_relationships  DataRelationship[] @relation("SourceModel")
+  target_relationships  DataRelationship[] @relation("TargetModel")
+
+  @@map("data_models")
+}
+
+model DataRelationship {
+  id               Int           @id @default(autoincrement())
+  source_model_id  Int
+  target_model_id  Int
+  type             RelationType
+  config           String?       @db.Text
+  created_at       DateTime      @default(now())
+
+  source_model DataModel @relation("SourceModel", fields: [source_model_id], references: [id], onDelete: Cascade)
+  target_model DataModel @relation("TargetModel", fields: [target_model_id], references: [id], onDelete: Cascade)
+
+  @@map("data_relationships")
+}
+
+model UploadHistory {
+  id              Int          @id @default(autoincrement())
+  user_id         Int?
+  model_id        Int
+  file_name       String       @db.VarChar(255)
+  file_path       String?      @db.VarChar(500)
+  status          UploadStatus @default(pending)
+  records_count   Int          @default(0)
+  error_message   String?      @db.Text
+  upload_metadata String?      @db.Text
+  created_at      DateTime     @default(now())
+  completed_at    DateTime?
+
+  user       User?      @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  data_model DataModel  @relation(fields: [model_id], references: [id], onDelete: Cascade)
+
+  @@map("upload_history")
+}
+
+model Dashboard {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  layout      String?  @db.Text
+  created_by  Int?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  creator      User?                  @relation(fields: [created_by], references: [id], onDelete: SetNull)
+  tabs         DashboardTab[]
+  permissions  DashboardPermission[]
+
+  @@map("dashboards")
+}
+
+model DashboardTab {
+  id           Int      @id @default(autoincrement())
+  dashboard_id Int
+  name         String   @db.VarChar(255)
+  order        Int      @default(0)
+  config       String?  @db.Text
+
+  dashboard      Dashboard       @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+  visualizations Visualization[]
+
+  @@map("dashboard_tabs")
+}
+
+model Visualization {
+  id         Int      @id @default(autoincrement())
+  tab_id     Int
+  type       String   @db.VarChar(50)
+  config     String   @db.Text
+  query      String?  @db.Text
+  order      Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tab DashboardTab @relation(fields: [tab_id], references: [id], onDelete: Cascade)
+
+  @@map("visualizations")
+}
+
+model DashboardPermission {
+  dashboard_id     Int
+  role_id          Int
+  permissions_json String @db.Text
+
+  dashboard Dashboard @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+  role      Role      @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([dashboard_id, role_id])
+  @@map("dashboard_permissions")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  user_id    Int?
+  action     String   @db.VarChar(100)
+  resource   String   @db.VarChar(100)
+  details    String?  @db.Text
+  ip_address String?  @db.VarChar(45)
+  created_at DateTime @default(now())
+
+  user User? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}

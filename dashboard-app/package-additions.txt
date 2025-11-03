@@ -1,0 +1,2 @@
+Add to dependencies in package.json:
+"argon2": "^0.31.0"
