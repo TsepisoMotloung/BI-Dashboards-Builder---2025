@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, UserStatus } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
@@ -9,6 +9,7 @@ async function main() {
   const admin = await prisma.user.findFirst({
     where: {
       email: 'admin@example.com',
+      // UserStatus: 'active',
     },
   })
 

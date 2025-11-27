@@ -12,6 +12,7 @@ class Role(Base):
     description = Column(Text, nullable=True)
     is_system_role = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
     role_permissions = relationship("RolePermission", back_populates="role", cascade="all, delete-orphan")

@@ -9,10 +9,10 @@ datasource db {
 }
 
 enum UserStatus {
-  pending
-  active
-  suspended
-  inactive
+  PENDING
+  ACTIVE
+  SUSPENDED
+  INACTIVE
 }
 
 enum OrgUnitType {
@@ -41,7 +41,7 @@ model User {
   email         String   @unique @db.VarChar(255)
   password_hash String   @db.VarChar(255)
   full_name     String   @db.VarChar(255)
-  status        UserStatus @default(pending)
+    status        UserStatus @default(PENDING)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
