@@ -24,6 +24,10 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token"""
     to_encode = data.copy()
+    # Ensure 'sub' is a string (JWT spec requires this)
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
+    
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
@@ -38,6 +42,9 @@ def decode_access_token(token: str) -> Optional[dict]:
     """Decode and verify JWT token"""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        # Ensure 'sub' is converted back to int if present
+        if "sub" in payload and isinstance(payload["sub"], str):
+            payload["sub"] = int(payload["sub"])
         return payload
     except JWTError:
         return None

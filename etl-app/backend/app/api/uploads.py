@@ -113,6 +113,28 @@ def rollback_upload(
         )
 
 
+@router.get("/{upload_id}/logs")
+def get_upload_logs(
+    upload_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get upload logs/metadata for an upload"""
+    upload = UploadService.get_upload_history(db, upload_id)
+    if not upload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found")
+    # Attempt to parse upload metadata as JSON
+    try:
+        metadata = upload.upload_metadata
+        if metadata:
+            import json
+            parsed = json.loads(metadata)
+            return parsed
+        return {}
+    except Exception:
+        return {"metadata": upload.upload_metadata}
+
+
 @router.get("/model/{model_id}/history", response_model=List[UploadHistoryResponse])
 def get_model_upload_history(
     model_id: int,

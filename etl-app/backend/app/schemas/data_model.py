@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from app.models.data_model import RelationType
+import json
 
 
 class FieldDefinition(BaseModel):
@@ -27,6 +28,7 @@ class DataModelCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, pattern="^[a-zA-Z][a-zA-Z0-9_]*$")
     schema_definition: DataModelSchema
     description: Optional[str] = None
+    organization_id: Optional[int] = None
     
     model_config = ConfigDict(protected_namespaces=())
 
@@ -34,6 +36,7 @@ class DataModelCreate(BaseModel):
 class DataModelUpdate(BaseModel):
     schema_definition: Optional[DataModelSchema] = None
     description: Optional[str] = None
+    organization_id: Optional[int] = None
     
     model_config = ConfigDict(protected_namespaces=())
 
@@ -42,6 +45,8 @@ class DataModelResponse(BaseModel):
     id: int
     name: str
     schema_json: Dict[str, Any]
+    description: Optional[str] = None
+    organization_id: Optional[int] = None
     version: int
     created_at: datetime
     updated_at: datetime

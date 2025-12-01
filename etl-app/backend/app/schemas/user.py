@@ -11,6 +11,10 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=100)
+    # Optional associations by id (frontend will supply via dropdowns)
+    organization_id: int | None = None
+    department_id: int | None = None
+    role_id: int | None = None
 
 
 class UserUpdate(BaseModel):
@@ -23,13 +27,14 @@ class UserResponse(UserBase):
     status: UserStatus
     created_at: datetime
     updated_at: datetime
+    roles: list[str] = []
+    department: dict | None = None  # {id, name}
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class UserWithRoles(UserResponse):
-    roles: list[str] = []
-
+    # kept for compatibility; inherits roles and organizational_units
     model_config = ConfigDict(from_attributes=True)
 
 

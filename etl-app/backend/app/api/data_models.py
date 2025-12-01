@@ -12,6 +12,22 @@ from app.schemas import (
 )
 from app.services import DataModelService
 from app.models import User
+import json
+
+
+def _parse_data_model(model) -> dict:
+    """Parse data model, converting schema_json string to dict"""
+    return {
+        "id": model.id,
+        "name": model.name,
+        "schema_json": json.loads(model.schema_json) if isinstance(model.schema_json, str) else model.schema_json,
+        "description": model.description,
+        "organization_id": model.organization_id,
+        "version": model.version,
+        "created_at": model.created_at,
+        "updated_at": model.updated_at
+    }
+
 
 router = APIRouter(prefix="/data-models", tags=["Data Models"])
 
@@ -25,7 +41,7 @@ def create_data_model(
     """Create a new data model and corresponding database table"""
     try:
         data_model = DataModelService.create_data_model(db, model_data)
-        return data_model
+        return _parse_data_model(data_model)
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -44,7 +60,7 @@ def list_data_models(
 ):
     """List all data models"""
     models = DataModelService.get_all_data_models(db, skip=skip, limit=limit)
-    return models
+    return [_parse_data_model(m) for m in models]
 
 
 @router.get("/{model_id}", response_model=DataModelResponse)
@@ -60,7 +76,7 @@ def get_data_model(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data model not found"
         )
-    return model
+    return _parse_data_model(model)
 
 
 @router.get("/name/{model_name}", response_model=DataModelResponse)
@@ -76,7 +92,7 @@ def get_data_model_by_name(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data model not found"
         )
-    return model
+    return _parse_data_model(model)
 
 
 @router.put("/{model_id}", response_model=DataModelResponse)
@@ -89,7 +105,7 @@ def update_data_model(
     """Update data model schema"""
     try:
         model = DataModelService.update_data_model(db, model_id, model_data)
-        return model
+        return _parse_data_model(model)
     except HTTPException as e:
         raise e
     except Exception as e:

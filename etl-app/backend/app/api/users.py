@@ -3,11 +3,30 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.core.deps import get_current_active_user
-from app.schemas import UserResponse, UserUpdate, UserWithRoles
+from app.schemas import UserResponse, UserUpdate, UserWithRoles, UserCreate
 from app.services import UserService
 from app.models import User
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def create_user(
+    user_data: UserCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new user (admin only in production)"""
+    try:
+        user = UserService.create_user(db, user_data)
+        return user
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating user: {str(e)}"
+        )
 
 
 @router.get("/me", response_model=UserWithRoles)
@@ -37,7 +56,7 @@ def list_users(
     db: Session = Depends(get_db)
 ):
     """List all users (admin only in production)"""
-    users = UserService.get_all_users(db, skip=skip, limit=limit)
+    users = UserService.get_all_users_enriched(db, skip=skip, limit=limit)
     return users
 
 
@@ -48,7 +67,7 @@ def get_user(
     db: Session = Depends(get_db)
 ):
     """Get user by ID"""
-    user = UserService.get_user_by_id(db, user_id)
+    user = UserService.get_user_enriched(db, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -17,11 +17,14 @@ class DataModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, nullable=False, index=True)
     schema_json = Column(Text, nullable=False)  # JSON schema definition
+    description = Column(Text, nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True)
     version = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
+    organization = relationship("Organization", backref="data_models")
     upload_history = relationship("UploadHistory", back_populates="data_model", cascade="all, delete-orphan")
     source_relationships = relationship(
         "DataRelationship",

@@ -1,8 +1,9 @@
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
-from app.models import Role, Permission, RolePermission, User, UserRole
+from app.models import Role, Permission, RolePermission, User, UserRole, Organization, Department
 from app.models.user import UserStatus
 from app.utils import get_password_hash
+from sqlalchemy import text
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -16,40 +17,85 @@ def create_tables():
     logger.info("Database tables created successfully")
 
 
+def init_organizations_and_departments(db: Session):
+    """Initialize default organization and department"""
+    logger.info("Initializing organizations and departments...")
+    
+    # Create default organization
+    existing_org = db.query(Organization).filter(Organization.name == "Default Company").first()
+    if not existing_org:
+        org = Organization(
+            name="Default Company",
+            description="Default organization"
+        )
+        db.add(org)
+        db.flush()
+        org_id = org.id
+        logger.info("Created organization: Default Company")
+    else:
+        org_id = existing_org.id
+        logger.info("Organization already exists: Default Company")
+    
+    # Create default department
+    existing_dept = db.query(Department).filter(Department.name == "Engineering").first()
+    if not existing_dept:
+        dept = Department(
+            name="Engineering",
+            organization_id=org_id
+        )
+        db.add(dept)
+        db.flush()
+        logger.info(f"Created department: Engineering (org_id={org_id})")
+    else:
+        logger.info("Department already exists: Engineering")
+    
+    db.commit()
+
+
 def init_roles_and_permissions(db: Session):
     """Initialize default roles and permissions"""
     logger.info("Initializing roles and permissions...")
+    # Ensure the roles table has the new `department_id` column (handle older DBs)
+    try:
+        with engine.connect() as conn:
+            # quick check: try selecting the column
+            conn.execute(text("SELECT department_id FROM roles LIMIT 1"))
+    except Exception:
+        logger.info("Patching roles table to add department_id column (if missing)")
+        try:
+            with engine.begin() as conn:
+                # Add column (assume missing); plain ALTER without IF NOT EXISTS for compatibility
+                conn.execute(text("ALTER TABLE roles ADD COLUMN department_id INT NULL"))
+                # add index
+                conn.execute(text("CREATE INDEX idx_roles_department_id ON roles (department_id)"))
+                # add FK constraint (if departments table exists)
+                conn.execute(text("ALTER TABLE roles ADD CONSTRAINT fk_roles_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE"))
+        except Exception as e:
+            logger.warning(f"Could not alter roles table automatically: {e}")
     
-    # Define permissions
     permissions_data = [
-        # User permissions
         {"resource": "users", "action": "view", "description": "View users"},
         {"resource": "users", "action": "create", "description": "Create users"},
         {"resource": "users", "action": "edit", "description": "Edit users"},
         {"resource": "users", "action": "delete", "description": "Delete users"},
         
-        # Data model permissions
         {"resource": "data_models", "action": "view", "description": "View data models"},
         {"resource": "data_models", "action": "create", "description": "Create data models"},
         {"resource": "data_models", "action": "edit", "description": "Edit data models"},
         {"resource": "data_models", "action": "delete", "description": "Delete data models"},
         
-        # Upload permissions
         {"resource": "uploads", "action": "view", "description": "View uploads"},
         {"resource": "uploads", "action": "create", "description": "Upload data"},
         {"resource": "uploads", "action": "rollback", "description": "Rollback uploads"},
         
-        # Dashboard permissions
         {"resource": "dashboards", "action": "view", "description": "View dashboards"},
         {"resource": "dashboards", "action": "create", "description": "Create dashboards"},
         {"resource": "dashboards", "action": "edit", "description": "Edit dashboards"},
         {"resource": "dashboards", "action": "delete", "description": "Delete dashboards"},
         
-        # Audit permissions
         {"resource": "audit", "action": "view", "description": "View audit logs"},
     ]
     
-    # Create permissions
     permissions = {}
     for perm_data in permissions_data:
         existing = db.query(Permission).filter(
@@ -67,12 +113,14 @@ def init_roles_and_permissions(db: Session):
     
     db.commit()
     
-    # Define roles with their permissions
+    default_dept = db.query(Department).filter(Department.name == "Engineering").first()
+    dept_id = default_dept.id if default_dept else None
+    
     roles_data = {
         "Super Admin": {
             "description": "Full system access",
             "is_system_role": True,
-            "permissions": list(permissions.keys())  # All permissions
+            "permissions": list(permissions.keys())
         },
         "Admin": {
             "description": "Administrative access",
@@ -95,7 +143,6 @@ def init_roles_and_permissions(db: Session):
         }
     }
     
-    # Create roles and assign permissions
     for role_name, role_info in roles_data.items():
         existing_role = db.query(Role).filter(Role.name == role_name).first()
         
@@ -103,12 +150,12 @@ def init_roles_and_permissions(db: Session):
             role = Role(
                 name=role_name,
                 description=role_info["description"],
-                is_system_role=role_info["is_system_role"]
+                is_system_role=role_info["is_system_role"],
+                department_id=dept_id
             )
             db.add(role)
             db.flush()
             
-            # Assign permissions to role
             for perm_key in role_info["permissions"]:
                 if perm_key in permissions:
                     role_perm = RolePermission(
@@ -128,24 +175,38 @@ def init_roles_and_permissions(db: Session):
 def create_super_admin(db: Session):
     """Create default super admin user"""
     logger.info("Creating super admin user...")
-    
-    # Check if super admin already exists
+    # Ensure users table has department_id column for newer schema
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT department_id FROM users LIMIT 1"))
+    except Exception:
+        logger.info("Patching users table to add department_id column (if missing)")
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN department_id INT NULL"))
+                conn.execute(text("CREATE INDEX idx_users_department_id ON users (department_id)"))
+                conn.execute(text("ALTER TABLE users ADD CONSTRAINT fk_users_department FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE"))
+        except Exception as e:
+            logger.warning(f"Could not alter users table automatically: {e}")
+
     existing = db.query(User).filter(User.email == "admin@example.com").first()
     if existing:
         logger.info("Super admin already exists")
         return
     
-    # Create super admin user
+    default_dept = db.query(Department).filter(Department.name == "Engineering").first()
+    dept_id = default_dept.id if default_dept else None
+    
     admin_user = User(
         email="admin@example.com",
         full_name="Super Administrator",
-        password_hash=get_password_hash("admin123"),  # Change in production!
-        status=UserStatus.ACTIVE
+        password_hash=get_password_hash("admin123"),
+        status=UserStatus.ACTIVE,
+        department_id=dept_id
     )
     db.add(admin_user)
     db.flush()
     
-    # Assign Super Admin role
     super_admin_role = db.query(Role).filter(Role.name == "Super Admin").first()
     if super_admin_role:
         user_role = UserRole(user_id=admin_user.id, role_id=super_admin_role.id)
@@ -159,17 +220,13 @@ def init_db():
     """Initialize database with tables and seed data"""
     logger.info("Starting database initialization...")
     
-    # Create tables
     create_tables()
     
-    # Create session
     db = SessionLocal()
     
     try:
-        # Initialize roles and permissions
+        init_organizations_and_departments(db)
         init_roles_and_permissions(db)
-        
-        # Create super admin
         create_super_admin(db)
         
         logger.info("Database initialization completed successfully!")

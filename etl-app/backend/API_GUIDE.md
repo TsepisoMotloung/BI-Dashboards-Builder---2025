@@ -17,7 +17,7 @@ All endpoints except `/auth/register` and `/auth/login` require authentication u
 **Endpoint**: `POST /auth/login`
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/auth/login" \
+curl -X POST "https://zany-space-lamp-rvgjjwrgv7jfwwjv-8000.app.github.dev/api/v1/auth/login" \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@example.com",

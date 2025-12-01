@@ -11,12 +11,12 @@ class UserService:
     
     @staticmethod
     def create_user(db: Session, user_data: UserCreate) -> User:
-        """Create new user"""
+        """Create new user and optionally attach role and organizational units"""
         # Check if user already exists
         existing_user = db.query(User).filter(User.email == user_data.email).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
-        
+
         # Create user
         user = User(
             email=user_data.email,
@@ -24,11 +24,33 @@ class UserService:
             password_hash=get_password_hash(user_data.password),
             status=UserStatus.PENDING
         )
-        
+
         db.add(user)
         db.commit()
         db.refresh(user)
-        
+
+        # Attach department and role if provided
+        try:
+            if getattr(user_data, 'department_id', None):
+                # set user's department directly
+                user.department_id = user_data.department_id
+
+            # Attach role if provided
+            if getattr(user_data, 'role_id', None):
+                from app.models import UserRole
+                existing = db.query(UserRole).filter(
+                    UserRole.user_id == user.id,
+                    UserRole.role_id == user_data.role_id
+                ).first()
+                if not existing:
+                    db.add(UserRole(user_id=user.id, role_id=user_data.role_id))
+
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            # if anything goes wrong attaching relationships, rollback but keep created user
+            db.rollback()
+
         return user
     
     @staticmethod
@@ -51,6 +73,42 @@ class UserService:
     def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
         """Get user by ID"""
         return db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
+    def serialize_user(db: Session, user: User) -> dict:
+        """Return a dict representation of user including roles and organizational units"""
+        # roles
+        roles = [r.name for r in db.query(Role).join(UserRole).filter(UserRole.user_id == user.id).all()]
+        # organizational units
+        department = None
+        try:
+            if user.department:
+                department = { 'id': user.department.id, 'name': user.department.name }
+        except Exception:
+            department = None
+
+        return {
+            'id': user.id,
+            'email': user.email,
+            'full_name': user.full_name,
+            'status': user.status,
+            'created_at': user.created_at,
+            'updated_at': user.updated_at,
+            'roles': roles,
+            'department': department
+        }
+
+    @staticmethod
+    def get_all_users_enriched(db: Session, skip: int = 0, limit: int = 100) -> List[dict]:
+        users = db.query(User).offset(skip).limit(limit).all()
+        return [UserService.serialize_user(db, u) for u in users]
+
+    @staticmethod
+    def get_user_enriched(db: Session, user_id: int) -> Optional[dict]:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return None
+        return UserService.serialize_user(db, user)
     
     @staticmethod
     def get_user_by_email(db: Session, email: str) -> Optional[User]:

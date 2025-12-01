@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Text
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -28,4 +28,5 @@ class User(Base):
     upload_history = relationship("UploadHistory", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
     dashboards = relationship("Dashboard", back_populates="creator", foreign_keys="Dashboard.created_by")
-    user_organizational_units = relationship("UserOrganizationalUnit", back_populates="user", cascade="all, delete-orphan")
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True, index=True)
+    department = relationship("Department", back_populates="users")

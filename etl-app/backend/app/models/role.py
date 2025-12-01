@@ -11,10 +11,12 @@ class Role(Base):
     name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     is_system_role = Column(Boolean, default=False, nullable=False)
+    department_id = Column(Integer, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
+    department = relationship("Department", back_populates="roles")
     role_permissions = relationship("RolePermission", back_populates="role", cascade="all, delete-orphan")
     user_roles = relationship("UserRole", back_populates="role", cascade="all, delete-orphan")
     dashboard_permissions = relationship("DashboardPermission", back_populates="role", cascade="all, delete-orphan")

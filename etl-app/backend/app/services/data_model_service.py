@@ -33,6 +33,8 @@ class DataModelService:
         data_model = DataModel(
             name=model_data.name,
             schema_json=schema_json,
+            description=model_data.description,
+            organization_id=model_data.organization_id,
             version=1
         )
         
@@ -77,6 +79,12 @@ class DataModelService:
             schema_dict = model_data.schema_definition.model_dump()
             data_model.schema_json = json.dumps(schema_dict)
             data_model.version += 1
+        
+        if model_data.description is not None:
+            data_model.description = model_data.description
+        
+        if model_data.organization_id is not None:
+            data_model.organization_id = model_data.organization_id
         
         db.commit()
         db.refresh(data_model)
