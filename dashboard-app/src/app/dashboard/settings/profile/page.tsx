@@ -64,9 +64,9 @@ export default async function ProfilePage() {
                 <div className="flex items-center space-x-2 pt-2">
                   <Badge
                     variant={
-                      user.status === "active"
+                      user.status === "ACTIVE"
                         ? "success"
-                        : user.status === "pending"
+                        : user.status === "PENDING"
                         ? "secondary"
                         : "destructive"
                     }

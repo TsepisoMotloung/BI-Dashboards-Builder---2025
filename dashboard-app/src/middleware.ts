@@ -7,7 +7,8 @@ export default auth((req) => {
   const isAuthenticated = !!req.auth
 
   // Public routes that don't require authentication
-  const publicRoutes = ['/auth/signin', '/auth/signup', '/auth/error']
+  // Also allow NextAuth API endpoints so callbacks and csrf checks are not redirected
+  const publicRoutes = ['/auth/signin', '/auth/signup', '/auth/error', '/api/auth']
   const isPublicRoute = publicRoutes.some(route => pathname.startsWith(route))
 
   // Redirect authenticated users away from auth pages

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button"
 import { prisma } from "@/lib/prisma"
 import { formatDateTime } from "@/lib/utils"
 import { Database, Plus, Eye } from "lucide-react"
+import { DataModelViewer } from "@/components/DataModelViewer"
 
 export default async function DataModelsPage() {
   const session = await auth()
@@ -146,3 +147,4 @@ export default async function DataModelsPage() {
     </DashboardLayout>
   )
 }
+

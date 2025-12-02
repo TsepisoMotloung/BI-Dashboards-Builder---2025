@@ -21,20 +21,30 @@ export default function SignInPage() {
     setLoading(true);
 
     try {
+      console.log("SignIn attempt with email:", email);
+      
       const result = await signIn("credentials", {
         email,
         password,
         redirect: false,
       });
 
+      console.log("SignIn result:", result);
+
       if (result?.error) {
-        setError("Invalid email or password");
-      } else {
+        console.error("SignIn error:", result.error);
+        setError(result.error || "Invalid email or password");
+      } else if (result?.ok) {
+        console.log("SignIn successful, redirecting to:", callbackUrl);
         router.push(callbackUrl);
         router.refresh();
+      } else {
+        console.warn("SignIn returned unexpected result:", result);
+        setError("Authentication failed. Please check your credentials.");
       }
     } catch (error) {
-      setError("An error occurred. Please try again.");
+      console.error("SignIn exception:", error);
+      setError("An error occurred. Please try again. Check browser console for details.");
     } finally {
       setLoading(false);
     }

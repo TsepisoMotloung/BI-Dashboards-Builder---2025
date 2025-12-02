@@ -33,9 +33,9 @@ export default async function UsersPage() {
   // Get user statistics
   const stats = {
     total: users.length,
-    active: users.filter((u) => u.status === "active").length,
-    pending: users.filter((u) => u.status === "pending").length,
-    suspended: users.filter((u) => u.status === "suspended").length,
+    active: users.filter((u) => u.status === "ACTIVE").length,
+    pending: users.filter((u) => u.status === "PENDING").length,
+    suspended: users.filter((u) => u.status === "SUSPENDED").length,
   }
 
   return (
@@ -133,9 +133,9 @@ export default async function UsersPage() {
                         <p className="font-medium">{user.full_name}</p>
                         <Badge
                           variant={
-                            user.status === "active"
+                            user.status === "ACTIVE"
                               ? "success"
-                              : user.status === "pending"
+                              : user.status === "PENDING"
                               ? "secondary"
                               : "destructive"
                           }

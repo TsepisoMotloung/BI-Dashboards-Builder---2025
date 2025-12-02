@@ -110,12 +110,22 @@ export default async function MyDashboardsPage() {
                 <Card key={dashboard.id} className="hover:shadow-lg transition-shadow">
                   <CardHeader>
                     <div className="flex items-start justify-between">
-                      <div className="flex items-start space-x-3">
+                      <div className="flex items-start space-x-3 flex-1">
                         <div className="rounded-lg bg-primary/10 p-2">
                           <BarChart3 className="h-5 w-5 text-primary" />
                         </div>
-                        <div className="space-y-1">
-                          <CardTitle className="text-lg">{dashboard.name}</CardTitle>
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-lg">{dashboard.name}</CardTitle>
+                            {dashboard.is_published && (
+                              <Badge className="bg-green-100 text-green-800 border-0">
+                                Published
+                              </Badge>
+                            )}
+                            {!dashboard.is_published && dashboard.created_by === session.user.id && (
+                              <Badge variant="secondary">Draft</Badge>
+                            )}
+                          </div>
                           <CardDescription className="line-clamp-2">
                             {dashboard.description || "No description"}
                           </CardDescription>
@@ -138,17 +148,26 @@ export default async function MyDashboardsPage() {
                       <p>Updated {formatDateTime(dashboard.updated_at)}</p>
                     </div>
 
-                    <div className="flex items-center space-x-2 pt-2">
-                      <Link href={`/dashboard/my-dashboards/${dashboard.id}`} className="flex-1">
+                    <div className="flex items-center gap-2 pt-2">
+                      <Link href={`/dashboard/viewer/${dashboard.id}`} className="flex-1">
                         <Button variant="default" size="sm" className="w-full">
                           <Eye className="h-4 w-4 mr-2" />
                           View
                         </Button>
                       </Link>
-                      {(userIsAdmin || dashboard.created_by === session.user.id) && (
-                        <Button variant="outline" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                      {dashboard.created_by === session.user.id && (
+                        <>
+                          <Link href={`/dashboard/builder/${dashboard.id}`}>
+                            <Button variant="outline" size="sm">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          <Link href={`/dashboard/my-dashboards/${dashboard.id}/permissions`}>
+                            <Button variant="outline" size="sm">
+                              Settings
+                            </Button>
+                          </Link>
+                        </>
                       )}
                     </div>
                   </CardContent>

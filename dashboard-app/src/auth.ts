@@ -1,28 +1,25 @@
 import NextAuth, { DefaultSession } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
-import { PrismaAdapter } from "@auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
-import { verifyPassword } from "@/lib/auth-utils"
-import { UserStatus } from "@prisma/client"
+import { verifyPasswordWithArgon2 } from "@/lib/auth-utils"
 
 declare module "next-auth" {
   interface Session {
     user: {
       id: number
-      status: UserStatus
-      roles: string[]
+      status: string
+      roles: any[]
     } & DefaultSession["user"]
   }
 
   interface User {
     id: number
-    status: UserStatus
-    roles: string[]
+    status: string
+    roles: any[]
   }
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  adapter: PrismaAdapter(prisma),
   session: {
     strategy: "jwt",
   },
@@ -39,10 +36,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
+                    console.log("[AUTH] Missing credentials - email:", credentials?.email);
           return null
         }
 
         try {
+                    console.log("[AUTH] Attempting to find user with email:", credentials.email);
           // Find user by email
           const user = await prisma.user.findUnique({
             where: {
@@ -58,26 +57,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           })
 
           if (!user) {
+                console.log("[AUTH] User not found with email:", credentials.email);
+                      console.log("[AUTH] User found, verifying status");
             return null
           }
 
           // Check if user is active
-          if (user.status !== UserStatus.active) {
+          if (user.status !== "ACTIVE") {
+            console.log("[AUTH] Account is not active for user:", credentials.email, "status:", user.status);
             throw new Error("Account is not active")
           }
 
           // Verify password (supports both Argon2 from ETL app and bcrypt)
-          const isPasswordValid = await verifyPassword(
+          const isPasswordValid = await verifyPasswordWithArgon2(
             credentials.password as string,
             user.password_hash
           )
 
           if (!isPasswordValid) {
+                console.log("[AUTH] Invalid password for user:", credentials.email);
+                      console.log("[AUTH] Password verified, extracting roles");
             return null
           }
 
           // Get user roles
-          const roles = user.user_roles.map((ur) => ur.role.name)
+          const roles = user.user_roles.map((ur) => ur.role)
+          console.log("[AUTH] Authorization successful, roles count:", roles.length);
 
           // Return user object
           return {
@@ -88,14 +93,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             roles: roles,
           }
         } catch (error) {
-          console.error("Authorization error:", error)
+          console.error("[AUTH] Authorization exception:", error);
+          if (error instanceof Error) {
+            console.error("[AUTH] Error message:", error.message);
+            console.error("[AUTH] Error stack:", error.stack);
+          }
           return null
         }
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user }: any) {
       if (user) {
         token.id = user.id
         token.status = user.status
@@ -103,11 +112,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       return token
     },
-    async session({ session, token }) {
+    async session({ session, token }: any) {
       if (token && session.user) {
-        session.user.id = token.id as number
-        session.user.status = token.status as UserStatus
-        session.user.roles = token.roles as string[]
+        session.user.id = token.id || 0
+        session.user.status = token.status || ""
+        session.user.roles = token.roles || []
       }
       return session
     },

@@ -177,13 +177,14 @@ model UploadHistory {
 }
 
 model Dashboard {
-  id          Int      @id @default(autoincrement())
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  layout      String?  @db.Text
-  created_by  Int?
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  name         String   @db.VarChar(255)
+  description  String?  @db.Text
+  layout       String?  @db.Text
+  created_by   Int?
+  is_published Boolean  @default(false)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
 
   creator      User?                  @relation(fields: [created_by], references: [id], onDelete: SetNull)
   tabs         DashboardTab[]
