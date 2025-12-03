@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserId } from "@/lib/auth-utils"
 import { NextRequest, NextResponse } from "next/server"
 
 /**
@@ -16,6 +17,7 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const userId = getUserId(session.user.id)
     const dashboardId = parseInt(params.id)
     if (isNaN(dashboardId)) {
       return NextResponse.json({ error: "Invalid dashboard id" }, { status: 400 })
@@ -29,7 +31,7 @@ export async function POST(
       return NextResponse.json({ error: "Dashboard not found" }, { status: 404 })
     }
 
-    if (dashboard.created_by !== session.user.id) {
+    if (dashboard.created_by !== userId) {
       return NextResponse.json(
         { error: "Only dashboard creator can publish" },
         { status: 403 }
@@ -70,6 +72,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const userId = getUserId(session.user.id)
     const dashboardId = parseInt(params.id)
     if (isNaN(dashboardId)) {
       return NextResponse.json({ error: "Invalid dashboard id" }, { status: 400 })
@@ -83,7 +86,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Dashboard not found" }, { status: 404 })
     }
 
-    if (dashboard.created_by !== session.user.id) {
+    if (dashboard.created_by !== userId) {
       return NextResponse.json(
         { error: "Only dashboard creator can unpublish" },
         { status: 403 }

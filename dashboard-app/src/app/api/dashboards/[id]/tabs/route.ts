@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserId } from "@/lib/auth-utils"
 import { NextRequest, NextResponse } from "next/server"
 
 /**
@@ -15,13 +16,14 @@ export async function POST(
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+    const userId = getUserId(session.user.id)
     const dashboardId = parseInt(params.id)
     if (isNaN(dashboardId)) {
       return NextResponse.json({ error: "Invalid dashboard id" }, { status: 400 })
     }
 
     const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } })
-    if (!dashboard || dashboard.created_by !== session.user.id) {
+    if (!dashboard || dashboard.created_by !== userId) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 

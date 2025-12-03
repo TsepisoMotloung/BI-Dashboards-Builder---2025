@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import { getUserId } from "@/lib/auth-utils"
 import { DashboardLayout } from "@/components/layout/DashboardLayout"
 import Link from "next/link"
 import { Button } from "@/components/ui/Button"
@@ -10,6 +11,7 @@ export default async function DashboardPermissionsPage({ params }: { params: { i
   const session = await auth()
   if (!session?.user?.id) redirect("/auth/signin")
 
+  const userId = getUserId(session.user.id)
   const dashboardId = parseInt(params.id)
   if (isNaN(dashboardId)) redirect("/dashboard/my-dashboards")
 
@@ -23,7 +25,7 @@ export default async function DashboardPermissionsPage({ params }: { params: { i
   }
 
   // Only creator can manage permissions
-  if (dashboard.created_by !== session.user.id) {
+  if (dashboard.created_by !== userId) {
     redirect(`/dashboard/viewer/${dashboardId}`)
   }
 

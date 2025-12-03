@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import { getUserId } from "@/lib/auth-utils"
 import { DashboardLayout } from "@/components/layout/DashboardLayout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Button } from "@/components/ui/Button"
@@ -14,6 +15,7 @@ async function createDashboard(formData: FormData) {
     return redirect("/auth/signin")
   }
 
+  const userId = getUserId(session.user.id)
   const name = formData.get("name") as string
   const description = formData.get("description") as string
 
@@ -27,7 +29,7 @@ async function createDashboard(formData: FormData) {
       data: {
         name,
         description: description || "",
-        created_by: session.user.id,
+        created_by: userId,
       },
     })
 

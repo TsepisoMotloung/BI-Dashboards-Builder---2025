@@ -13,10 +13,11 @@ export default async function DashboardPage() {
   }
 
   // Get statistics
+  const userId = parseInt(String(session.user.id), 10)
   const [dataModelsCount, uploadsCount, usersCount, dashboardsCount] = await Promise.all([
     prisma.dataModel.count(),
     prisma.uploadHistory.count({
-      where: { user_id: session.user.id }
+      where: { user_id: userId }
     }),
     prisma.user.count(),
     prisma.dashboard.count(),

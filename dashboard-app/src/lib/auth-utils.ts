@@ -52,3 +52,17 @@ export async function verifyPasswordWithArgon2(password: string, hashedPassword:
     return false
   }
 }
+
+/**
+ * Convert session user ID (string) to integer for Prisma queries
+ */
+export function getUserId(sessionUserId: string | number | undefined): number {
+  if (!sessionUserId) {
+    throw new Error('User ID is required')
+  }
+  const id = parseInt(String(sessionUserId), 10)
+  if (isNaN(id)) {
+    throw new Error('Invalid user ID')
+  }
+  return id
+}

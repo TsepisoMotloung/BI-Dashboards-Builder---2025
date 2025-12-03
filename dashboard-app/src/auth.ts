@@ -75,14 +75,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           )
 
           if (!isPasswordValid) {
-                console.log("[AUTH] Invalid password for user:", credentials.email);
-                      console.log("[AUTH] Password verified, extracting roles");
+            console.log("[AUTH] Invalid password for user:", credentials.email);
             return null
           }
 
-          // Get user roles
-          const roles = user.user_roles.map((ur) => ur.role)
-          console.log("[AUTH] Authorization successful, roles count:", roles.length);
+          console.log("[AUTH] Password verified, extracting roles");
+          // Get user role names
+          const roleNames = user.user_roles.map((ur) => ur.role.name)
+          console.log("[AUTH] Authorization successful, roles count:", roleNames.length);
 
           // Return user object
           return {
@@ -90,7 +90,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             email: user.email,
             name: user.full_name,
             status: user.status,
-            roles: roles,
+            roles: roleNames,
           }
         } catch (error) {
           console.error("[AUTH] Authorization exception:", error);

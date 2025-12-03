@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserId } from "@/lib/auth-utils"
 import { NextRequest, NextResponse } from "next/server"
 
 /**
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const userId = session.user.id
+    const userId = getUserId(session.user.id)
 
     // Build safe where clause: dashboards the user created OR dashboards where the user's roles are granted
     const dashboards = await prisma.dashboard.findMany({
@@ -64,8 +65,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await req.json()
-    const { name, description, layout, is_published } = body
+    const userId = getUserId(session.user.id)
 
     if (!name) {
       return NextResponse.json(
