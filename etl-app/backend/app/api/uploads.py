@@ -17,6 +17,18 @@ import json
 router = APIRouter(prefix="/uploads", tags=["Uploads"])
 
 
+@router.get("/tables/list")
+def list_existing_tables(
+    current_user: User = Depends(get_current_active_user)
+):
+    """List all existing dynamic tables that can be appended to."""
+    try:
+        tables = UploadService.list_dynamic_tables()
+        return {"tables": tables}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.post("/preview", response_model=UploadPreview)
 async def preview_upload(
     file: UploadFile = File(...),
@@ -35,7 +47,8 @@ async def preview_upload(
         )
 
 
-@router.post("/", response_model=UploadHistoryResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post("/", response_model=UploadResponse)
 async def upload_data(
     file: UploadFile = File(...),
     upload_request: str = Form(...),  # JSON string

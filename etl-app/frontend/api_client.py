@@ -44,6 +44,10 @@ class APIClient:
             call_headers = kwargs.pop("headers", {}) or {}
             headers = self.headers.copy()
             headers.update(call_headers)
+            
+            # Ensure Authorization is set if we have a token
+            if not headers.get('Authorization') and self.token:
+                headers['Authorization'] = f"Bearer {self.token}"
 
             response = requests.request(method, url, headers=headers, timeout=10, **kwargs)
             response.raise_for_status()
@@ -58,8 +62,10 @@ class APIClient:
         except requests.exceptions.RequestException as e:
             # Only show error if this isn't a normal 404 during cleanup
             error_msg = str(e)
-            if "404" not in error_msg:
+            if "404" not in error_msg and "403" not in error_msg:
                 st.error(f"API Error: {error_msg}")
+            elif "403" in error_msg:
+                st.error("Authorization failed. Please log in again.")
             return None
 
     def login(self, email: str, password: str) -> bool:
@@ -160,25 +166,32 @@ class APIClient:
         response = self._make_request("GET", f"/uploads/?skip={skip}&limit={limit}")
         return response if response else []
 
+    def list_tables(self) -> list:
+        """List all existing dynamic tables available for appending."""
+        response = self._make_request("GET", "/uploads/tables/list")
+        if response and isinstance(response, dict) and 'tables' in response:
+            return response['tables']
+        return []
+
     def get_upload(self, upload_id: int) -> Optional[Dict]:
         """Get upload by ID"""
         return self._make_request("GET", f"/uploads/{upload_id}")
 
-    def upload_file(self, file_path: str, data_model_id: int) -> Optional[Dict]:
-        """Upload a file (sends 'upload_request' JSON as form field expected by backend)"""
+    def upload_file(self, file_path: str, upload_request: dict) -> Optional[Dict]:
+        """Upload a file with upload_request options.
+
+        `upload_request` is a dict matching the backend `UploadRequest` model
+        (e.g. target_table_name, mode, add_missing_columns, validate_only, column_type_overrides, etc.)
+        """
         import json
         with open(file_path, 'rb') as f:
             files = {'file': (file_path.split('/')[-1], f)}
-            upload_request = {
-                "model_id": data_model_id,
-                "column_mappings": [],
-                "skip_rows": 0,
-                "validate_only": False
-            }
             data = {"upload_request": json.dumps(upload_request)}
 
-            # Merge headers; do not set Content-Type for multipart
+            # Ensure headers are set properly with auth
             headers = self.headers.copy() if self.headers else {}
+            if not headers.get('Authorization') and self.token:
+                headers['Authorization'] = f"Bearer {self.token}"
 
             try:
                 url = f"{self.base_url}/uploads/"
@@ -187,7 +200,7 @@ class APIClient:
                     files=files,
                     data=data,
                     headers=headers,
-                    timeout=60
+                    timeout=120
                 )
                 response.raise_for_status()
                 try:
@@ -195,15 +208,41 @@ class APIClient:
                 except ValueError:
                     return {"text": response.text}
             except requests.exceptions.RequestException as e:
-                st.error(f"Upload Error: {str(e)}")
+                error_msg = str(e)
+                if "403" in error_msg:
+                    st.error(f"Upload Error: Authentication failed. Please log in again.")
+                else:
+                    st.error(f"Upload Error: {error_msg}")
                 return None
 
-    def get_upload_logs(self, upload_id: int) -> list:
+    def preview_file(self, file_path: str) -> Optional[Dict]:
+        """Send a file to `/uploads/preview` and return detected headers/sample types."""
+        with open(file_path, 'rb') as f:
+            files = {'file': (file_path.split('/')[-1], f)}
+            # Ensure headers are set properly
+            headers = self.headers.copy() if self.headers else {}
+            if not headers.get('Authorization') and self.token:
+                headers['Authorization'] = f"Bearer {self.token}"
+            try:
+                url = f"{self.base_url}/uploads/preview"
+                response = requests.post(url, files=files, headers=headers, timeout=30)
+                response.raise_for_status()
+                try:
+                    return response.json()
+                except ValueError:
+                    return {"text": response.text}
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if "403" in error_msg:
+                    st.error(f"Preview Error: Authentication failed. Please log in again.")
+                else:
+                    st.error(f"Preview Error: {error_msg}")
+                return None
+
+    def get_upload_logs(self, upload_id: int) -> Optional[Dict]:
         """Get logs for an upload"""
         response = self._make_request("GET", f"/uploads/{upload_id}/logs")
         return response if response else []
-
-    # Data Models endpoints
     def get_data_models(self, skip: int = 0, limit: int = 100) -> list:
         """Get all data models"""
         response = self._make_request("GET", f"/data-models/?skip={skip}&limit={limit}")

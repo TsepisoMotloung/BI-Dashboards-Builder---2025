@@ -13,6 +13,16 @@ class UploadService:
     """Business logic for data upload and ingestion"""
     
     @staticmethod
+    def list_dynamic_tables() -> List[str]:
+        """List all existing dynamic tables (data_* prefix)"""
+        from sqlalchemy import inspect
+        inspector = inspect(DynamicTableManager.engine if hasattr(DynamicTableManager, 'engine') else __import__('app.core.database', fromlist=['engine']).engine)
+        all_tables = inspector.get_table_names()
+        # Filter tables that start with 'data_' (our dynamic tables naming convention)
+        dynamic_tables = [t for t in all_tables if t.startswith('data_')]
+        return dynamic_tables
+    
+    @staticmethod
     async def preview_file(file: UploadFile) -> UploadPreview:
         """Preview uploaded file without saving"""
         # Validate file
@@ -28,8 +38,21 @@ class UploadService:
             # Detect types
             detected_types = FileHandler.detect_column_types(preview_df)
             
-            # Convert to dict
-            sample_data = preview_df.to_dict('records')
+            # Convert to dict and clean up any non-serializable types
+            sample_data = []
+            for record in preview_df.to_dict('records'):
+                clean_record = {}
+                for k, v in record.items():
+                    # Convert numpy/pandas types to native Python types
+                    if pd.isna(v):
+                        clean_record[k] = None
+                    elif isinstance(v, (pd.Timestamp, pd.Timedelta)):
+                        clean_record[k] = str(v)
+                    elif isinstance(v, (int, float, str, bool, type(None))):
+                        clean_record[k] = v
+                    else:
+                        clean_record[k] = str(v)
+                sample_data.append(clean_record)
             
             # Clean up
             FileHandler.delete_file(file_path)
@@ -37,7 +60,7 @@ class UploadService:
             return UploadPreview(
                 headers=list(preview_df.columns),
                 sample_data=sample_data,
-                total_rows=total_rows,
+                total_rows=int(total_rows),
                 detected_types=detected_types
             )
         except Exception as e:
@@ -55,10 +78,23 @@ class UploadService:
         # Validate file
         FileHandler.validate_file(file)
         
-        # Get data model
-        data_model = db.query(DataModel).filter(DataModel.id == upload_request.model_id).first()
-        if not data_model:
-            raise HTTPException(status_code=404, detail="Data model not found")
+        # Determine target table: either from direct table name or from model
+        table_name = None
+        model_id = None
+        
+        if upload_request.target_table_name:
+            # Direct table mode: use the provided table name
+            table_name = upload_request.target_table_name
+            model_id = None  # No associated model
+        elif upload_request.model_id:
+            # Legacy model-based mode
+            data_model = db.query(DataModel).filter(DataModel.id == upload_request.model_id).first()
+            if not data_model:
+                raise HTTPException(status_code=404, detail="Data model not found")
+            table_name = upload_request.target_table or f"data_{data_model.name.lower()}"
+            model_id = upload_request.model_id
+        else:
+            raise HTTPException(status_code=400, detail="Either model_id or target_table_name must be provided")
         
         # Save file
         file_path, unique_filename = await FileHandler.save_upload_file(file)
@@ -66,7 +102,7 @@ class UploadService:
         # Create upload history record
         upload_history = UploadHistory(
             user_id=user_id,
-            model_id=upload_request.model_id,
+            model_id=model_id,
             file_name=file.filename,
             file_path=file_path,
             status=UploadStatus.PROCESSING,
@@ -85,54 +121,114 @@ class UploadService:
             if upload_request.skip_rows > 0:
                 df = df.iloc[upload_request.skip_rows:]
             
-            # Apply column mappings
+            # Detect types from dataframe
+            detected_types = FileHandler.detect_column_types(df)
+
+            # Apply column mappings (after detection to map file cols)
             mapping_dict = {cm.file_column: cm.model_field for cm in upload_request.column_mappings}
             df = df.rename(columns=mapping_dict)
-            
-            # Get schema
-            schema = json.loads(data_model.schema_json)
-            
-            # Validate required fields
-            required_fields = [f['name'] for f in schema['fields'] if f.get('required', False)]
-            missing_fields = set(required_fields) - set(df.columns)
-            if missing_fields:
-                raise ValueError(f"Missing required fields: {missing_fields}")
-            
-            # Clean data
-            df = df.fillna('')  # Replace NaN with empty string
-            
+
+            # Replace NaN with None for proper DB nulls
+            df = df.where(pd.notnull(df), None)
+
+            # Columns present in file after mapping
+            file_columns = list(df.columns)
+
+            # If mode is create => create new table from detected types
+            if upload_request.mode == 'create' or not DynamicTableManager.table_exists(table_name):
+                # Build minimal schema from detected types and any overrides
+                fields = []
+                for col in file_columns:
+                    col_type = (upload_request.column_type_overrides or {}).get(col) or detected_types.get(col, 'string')
+                    fields.append({
+                        'name': col,
+                        'type': col_type,
+                        'required': False
+                    })
+
+                schema = {'fields': fields}
+                DynamicTableManager.create_physical_table(table_name, schema)
+                added_columns = [c['name'] for c in fields]
+            else:
+                # Append mode: compare headers
+                existing_columns = DynamicTableManager.get_table_columns(table_name)
+                # exclude common system cols
+                system_cols = {'id', 'created_at', 'updated_at', 'upload_id'}
+                existing_user_cols = [c for c in existing_columns if c not in system_cols]
+
+                missing_in_table = [c for c in file_columns if c not in existing_user_cols]
+                # columns present in table but not in file
+                extra_in_table = [c for c in existing_user_cols if c not in file_columns]
+
+                added_columns = []
+
+                if missing_in_table:
+                    if upload_request.add_missing_columns:
+                        # Prepare types for missing cols with overrides
+                        cols_to_add = {}
+                        for c in missing_in_table:
+                            cols_to_add[c] = (upload_request.column_type_overrides or {}).get(c) or detected_types.get(c, 'string')
+
+                        added_columns = DynamicTableManager.add_missing_columns(table_name, cols_to_add)
+                    else:
+                        # If validate_only, return metadata about diffs
+                        if upload_request.validate_only:
+                            upload_history.status = UploadStatus.COMPLETED
+                            upload_history.records_count = 0
+                            upload_history.completed_at = datetime.utcnow()
+                            upload_history.upload_metadata = json.dumps({
+                                'file_columns': file_columns,
+                                'existing_columns': existing_user_cols,
+                                'missing_in_table': missing_in_table,
+                                'extra_in_table': extra_in_table,
+                                'detected_types': detected_types
+                            })
+                            db.commit()
+                            db.refresh(upload_history)
+                            return upload_history
+
+                        raise HTTPException(status_code=400, detail={
+                            'message': 'Columns missing in target table',
+                            'missing_columns': missing_in_table,
+                            'advice': 'Set add_missing_columns=true to automatically add nullable columns, or run a validate-only preview.'
+                        })
+
             # Convert to records
             records = df.to_dict('records')
-            
+
             if upload_request.validate_only:
-                # Only validation, don't insert
                 upload_history.status = UploadStatus.COMPLETED
                 upload_history.records_count = len(records)
                 upload_history.completed_at = datetime.utcnow()
                 upload_history.upload_metadata = json.dumps({
                     "validated_only": True,
-                    "validation_passed": True
+                    "detected_types": detected_types,
+                    "added_columns": added_columns,
+                    "column_mappings": [cm.model_dump() for cm in upload_request.column_mappings],
+                    "skip_rows": upload_request.skip_rows
                 })
                 db.commit()
                 db.refresh(upload_history)
                 return upload_history
-            
-            # Insert data into dynamic table
-            table_name = f"data_{data_model.name.lower()}"
-            rows_inserted = DynamicTableManager.insert_data_batch(table_name, records)
-            
+
+            # Insert data into dynamic table and tag with upload id
+            DynamicTableManager.ensure_upload_id_column(table_name)
+            rows_inserted = DynamicTableManager.insert_data_batch_with_upload(table_name, records, upload_id=upload_history.id)
+
             # Update upload history
             upload_history.status = UploadStatus.COMPLETED
             upload_history.records_count = rows_inserted
             upload_history.completed_at = datetime.utcnow()
             upload_history.upload_metadata = json.dumps({
                 "column_mappings": [cm.model_dump() for cm in upload_request.column_mappings],
-                "skip_rows": upload_request.skip_rows
+                "skip_rows": upload_request.skip_rows,
+                "added_columns": added_columns,
+                "detected_types": detected_types
             })
-            
+
             db.commit()
             db.refresh(upload_history)
-            
+
             return upload_history
             
         except Exception as e:
@@ -166,6 +262,8 @@ class UploadService:
             query = query.filter(UploadHistory.user_id == user_id)
         
         return query.order_by(UploadHistory.created_at.desc()).offset(skip).limit(limit).all()
+
+
     
     @staticmethod
     def rollback_upload(db: Session, upload_id: int, reason: Optional[str] = None) -> bool:
@@ -178,15 +276,45 @@ class UploadService:
         if upload.status != UploadStatus.COMPLETED:
             raise HTTPException(status_code=400, detail="Can only rollback completed uploads")
         
-        # Note: Actual data deletion would require tracking which records belong to which upload
-        # This would need an upload_id column in dynamic tables or timestamp-based tracking
-        
+        # Attempt to delete rows in the dynamic table belonging to this upload
+        data_model = db.query(DataModel).filter(DataModel.id == upload.model_id).first()
+        if not data_model:
+            raise HTTPException(status_code=404, detail="Associated data model not found")
+
+        table_name = f"data_{data_model.name.lower()}"
+
+        # Determine if caller requested schema revert by inspecting upload.upload_metadata
+        # (the API route will pass revert_schema via RollbackRequest; here we expect caller to pass it)
+        # For backward compatibility, default to not reverting schema.
+        revert_schema = False
+        # If upload_metadata includes a key 'revert_schema_requested' use it
+        try:
+            parsed_meta = json.loads(upload.upload_metadata) if upload.upload_metadata else {}
+            revert_schema = parsed_meta.get('revert_schema_requested', False)
+        except Exception:
+            parsed_meta = json.loads(upload.upload_metadata) if upload.upload_metadata else {}
+
+        try:
+            deleted = DynamicTableManager.delete_data_by_upload(table_name, upload_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error deleting uploaded rows: {str(e)}")
+
         upload.status = UploadStatus.ROLLED_BACK
-        metadata = json.loads(upload.upload_metadata) if upload.upload_metadata else {}
+        metadata = parsed_meta or {}
         metadata['rollback_reason'] = reason
         metadata['rolled_back_at'] = datetime.utcnow().isoformat()
+        metadata['rows_deleted'] = deleted
+
+        # If revert_schema true and metadata lists added_columns, attempt to drop them
+        if revert_schema and metadata.get('added_columns'):
+            try:
+                dropped = DynamicTableManager.drop_columns(table_name, metadata.get('added_columns'))
+                metadata['dropped_columns'] = dropped
+            except Exception as e:
+                metadata['dropped_columns_error'] = str(e)
+
         upload.upload_metadata = json.dumps(metadata)
-        
+
         db.commit()
-        
+
         return True
