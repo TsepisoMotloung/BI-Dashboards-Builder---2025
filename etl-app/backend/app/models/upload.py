@@ -18,7 +18,7 @@ class UploadHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    model_id = Column(Integer, ForeignKey("data_models.id", ondelete="CASCADE"), nullable=False)
+    model_id = Column(Integer, ForeignKey("data_models.id", ondelete="CASCADE"), nullable=True)
     file_name = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=True)
     status = Column(Enum(UploadStatus), default=UploadStatus.PENDING, nullable=False)

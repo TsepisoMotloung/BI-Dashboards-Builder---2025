@@ -7,6 +7,10 @@ from fastapi import UploadFile, HTTPException
 import pandas as pd
 import json
 from datetime import datetime
+import traceback
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class UploadService:
@@ -100,22 +104,28 @@ class UploadService:
         file_path, unique_filename = await FileHandler.save_upload_file(file)
         
         # Create upload history record
-        upload_history = UploadHistory(
-            user_id=user_id,
-            model_id=model_id,
-            file_name=file.filename,
-            file_path=file_path,
-            status=UploadStatus.PROCESSING,
-            records_count=0
-        )
-        
-        db.add(upload_history)
-        db.commit()
-        db.refresh(upload_history)
+        try:
+            upload_history = UploadHistory(
+                user_id=user_id,
+                model_id=model_id,
+                file_name=file.filename,
+                file_path=file_path,
+                status=UploadStatus.PROCESSING,
+                records_count=0
+            )
+            
+            db.add(upload_history)
+            db.commit()
+            db.refresh(upload_history)
+            logger.info(f"Created upload history record: {upload_history.id}")
+        except Exception as db_err:
+            logger.error(f"Failed to create upload history record: {str(db_err)}")
+            raise Exception(f"Database error creating upload record: {str(db_err)}")
         
         try:
             # Read file
             df = FileHandler.read_full_file(file_path)
+            print(f"DEBUG: Read file successfully, shape: {df.shape}")
             
             # Skip rows if specified
             if upload_request.skip_rows > 0:
@@ -123,6 +133,7 @@ class UploadService:
             
             # Detect types from dataframe
             detected_types = FileHandler.detect_column_types(df)
+            print(f"DEBUG: Detected types: {detected_types}")
 
             # Apply column mappings (after detection to map file cols)
             mapping_dict = {cm.file_column: cm.model_field for cm in upload_request.column_mappings}
@@ -133,22 +144,29 @@ class UploadService:
 
             # Columns present in file after mapping
             file_columns = list(df.columns)
+            print(f"DEBUG: File columns: {file_columns}")
 
             # If mode is create => create new table from detected types
             if upload_request.mode == 'create' or not DynamicTableManager.table_exists(table_name):
-                # Build minimal schema from detected types and any overrides
-                fields = []
-                for col in file_columns:
-                    col_type = (upload_request.column_type_overrides or {}).get(col) or detected_types.get(col, 'string')
-                    fields.append({
-                        'name': col,
-                        'type': col_type,
-                        'required': False
-                    })
+                print(f"DEBUG: Creating new table: {table_name} with mode: {upload_request.mode}")
+                try:
+                    # Build minimal schema from detected types and any overrides
+                    fields = []
+                    for col in file_columns:
+                        col_type = (upload_request.column_type_overrides or {}).get(col) or detected_types.get(col, 'string')
+                        fields.append({
+                            'name': col,
+                            'type': col_type,
+                            'required': False
+                        })
 
-                schema = {'fields': fields}
-                DynamicTableManager.create_physical_table(table_name, schema)
-                added_columns = [c['name'] for c in fields]
+                    schema = {'fields': fields}
+                    print(f"DEBUG: Schema: {schema}")
+                    DynamicTableManager.create_physical_table(table_name, schema)
+                    print(f"DEBUG: Table created successfully")
+                    added_columns = [c['name'] for c in fields]
+                except Exception as create_err:
+                    raise Exception(f"Failed to create table '{table_name}': {str(create_err)}")
             else:
                 # Append mode: compare headers
                 existing_columns = DynamicTableManager.get_table_columns(table_name)
@@ -195,6 +213,7 @@ class UploadService:
 
             # Convert to records
             records = df.to_dict('records')
+            print(f"DEBUG: Converted to records, count: {len(records)}")
 
             if upload_request.validate_only:
                 upload_history.status = UploadStatus.COMPLETED
@@ -212,32 +231,63 @@ class UploadService:
                 return upload_history
 
             # Insert data into dynamic table and tag with upload id
-            DynamicTableManager.ensure_upload_id_column(table_name)
-            rows_inserted = DynamicTableManager.insert_data_batch_with_upload(table_name, records, upload_id=upload_history.id)
+            try:
+                print(f"DEBUG: Ensuring upload_id column in {table_name}")
+                DynamicTableManager.ensure_upload_id_column(table_name)
+                print(f"DEBUG: Inserting {len(records)} records")
+                rows_inserted = DynamicTableManager.insert_data_batch_with_upload(table_name, records, upload_id=upload_history.id)
+                print(f"DEBUG: Inserted {rows_inserted} rows")
+            except Exception as insert_err:
+                raise Exception(f"Failed to insert data into table '{table_name}': {str(insert_err)}")
 
             # Update upload history
-            upload_history.status = UploadStatus.COMPLETED
-            upload_history.records_count = rows_inserted
-            upload_history.completed_at = datetime.utcnow()
-            upload_history.upload_metadata = json.dumps({
-                "column_mappings": [cm.model_dump() for cm in upload_request.column_mappings],
-                "skip_rows": upload_request.skip_rows,
-                "added_columns": added_columns,
-                "detected_types": detected_types
-            })
+            try:
+                upload_history.status = UploadStatus.COMPLETED
+                upload_history.records_count = rows_inserted
+                upload_history.completed_at = datetime.utcnow()
+                upload_history.upload_metadata = json.dumps({
+                    "column_mappings": [cm.model_dump() for cm in upload_request.column_mappings],
+                    "skip_rows": upload_request.skip_rows,
+                    "added_columns": added_columns,
+                    "detected_types": detected_types
+                })
 
-            db.commit()
-            db.refresh(upload_history)
+                db.commit()
+                db.refresh(upload_history)
+            except Exception as update_err:
+                raise Exception(f"Failed to update upload history: {str(update_err)}")
 
             return upload_history
             
+        except HTTPException as http_err:
+            logger.error(f"HTTP Exception during upload: {http_err.detail}")
+            upload_history.status = UploadStatus.FAILED
+            upload_history.error_message = str(http_err.detail)
+            db.commit()
+            raise http_err
+            
         except Exception as e:
+            # Log detailed error information
+            error_msg = str(e)
+            error_trace = traceback.format_exc()
+            
+            logger.error(f"=== UPLOAD ERROR ===")
+            logger.error(f"Error: {error_msg}")
+            logger.error(f"Type: {type(e).__name__}")
+            logger.error(f"Traceback:\n{error_trace}")
+            
             # Update status to failed
             upload_history.status = UploadStatus.FAILED
-            upload_history.error_message = str(e)
-            db.commit()
+            upload_history.error_message = f"{type(e).__name__}: {error_msg}"
+            try:
+                db.commit()
+            except Exception as commit_err:
+                logger.error(f"Failed to commit error status to DB: {str(commit_err)}")
             
-            raise HTTPException(status_code=500, detail=f"Error processing upload: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"{type(e).__name__}: {error_msg}"
+            )
     
     @staticmethod
     def get_upload_history(db: Session, upload_id: int) -> Optional[UploadHistory]:

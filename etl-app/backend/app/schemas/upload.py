@@ -62,7 +62,7 @@ class UploadResponse(BaseModel):
 
 class UploadHistoryResponse(UploadResponse):
     user_id: Optional[int] = None
-    model_id: int
+    model_id: Optional[int] = None
     upload_metadata: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())

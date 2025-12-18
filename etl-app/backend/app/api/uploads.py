@@ -56,21 +56,53 @@ async def upload_data(
     db: Session = Depends(get_db)
 ):
     """Upload and process data file"""
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+    
     try:
+        logger.info(f"=== UPLOAD START ===")
+        logger.info(f"User: {current_user.id}, File: {file.filename}")
+        logger.info(f"Upload request JSON: {upload_request}")
+        
         # Parse upload request JSON
-        upload_data = UploadRequest.model_validate_json(upload_request)
+        try:
+            upload_data = UploadRequest.model_validate_json(upload_request)
+            logger.info(f"✓ Parsed upload data successfully: mode={upload_data.mode}, table={upload_data.target_table_name}")
+        except Exception as e:
+            logger.error(f"✗ Failed to parse upload request JSON: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid upload request format: {str(e)}"
+            )
         
         # Process upload
-        upload_history = await UploadService.upload_data(
-            db, file, upload_data, user_id=current_user.id
-        )
-        return upload_history
+        try:
+            logger.info(f"Starting upload processing...")
+            upload_history = await UploadService.upload_data(
+                db, file, upload_data, user_id=current_user.id
+            )
+            logger.info(f"✓ Upload completed successfully: {upload_history.id}")
+            return upload_history
+        except HTTPException as http_err:
+            logger.error(f"✗ HTTP Error in upload: {http_err.detail}")
+            raise http_err
+        except Exception as service_err:
+            logger.error(f"✗ Service error: {str(service_err)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Upload processing failed: {str(service_err)}"
+            )
+            
     except HTTPException as e:
         raise e
     except Exception as e:
+        logger.error(f"✗ Unexpected error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing upload: {str(e)}"
+            detail=f"Unexpected error: {str(e)}"
         )
 
 
