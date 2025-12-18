@@ -1,15 +1,11 @@
 from fastapi import APIRouter
-from app.api import auth, users, data_models, uploads, roles, organizations, departments
+from app.api import auth, uploads
 
+# Restrict API surface: keep only authentication and uploads
 api_router = APIRouter()
 
-# Include all routers
+# Keep auth (login) and uploads endpoints only
 api_router.include_router(auth.router)
-api_router.include_router(users.router)
-api_router.include_router(data_models.router)
 api_router.include_router(uploads.router)
-api_router.include_router(roles.router)
-api_router.include_router(organizations.router)
-api_router.include_router(departments.router)
 
 __all__ = ["api_router"]
